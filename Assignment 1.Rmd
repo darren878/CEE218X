@@ -478,7 +478,7 @@ pge_chart_com1 %>%
 
 ```
 
-Likewise, grouping the data of the commercial sector into years (2021 data only includes the first two quarters), total energy consumption in 2020 was lower than that in 2019. This is expected due to more people working outside offices. However, the data also shows fluctuations in total energy use from 2017 to 2020, rather than an upward trend that was 'broken' by COVID-19. It must be acknowledged that other factors beyond the COVID-19 pandemic influencing energy use are also at play, such as cost of energy. While we may anticipate an increasing trend of energy consumption over time due to affluence, it may also be mitigated by better design of urban systems to improve energy efficience.  
+Likewise, grouping the data of the commercial sector into years (2021 data only includes the first two quarters), total energy consumption in 2020 was lower than that in 2019. This is expected due to more people working outside offices. However, the data also shows fluctuations in total energy use from 2017 to 2020, rather than an upward trend that was 'broken' by COVID-19. It must be acknowledged that other factors beyond the COVID-19 pandemic influencing energy use are also at play, such as cost of energy. While we may anticipate an increasing trend of energy consumption over time due to affluence, it may also be mitigated by better design of urban systems to improve energy efficiency.  
 
 ```{r electricity and gas commercial chart - year}
 pge_chart_com2 <- 
