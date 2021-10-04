@@ -1,0 +1,205 @@
+---
+title: "CEE 218X Assignment 2"
+author: Darren Wong
+date: 09/30/2021
+output: html_document
+---
+
+```{r setup, include=FALSE, warning = F, message = F}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+```{r packages, include = FALSE}
+library(tidyverse)
+library(sf)
+library(tigris)
+library(censusapi)
+library(mapview)
+library(leaflet)
+```
+
+```{r, include = FALSE}
+library(devtools)
+install_github('walkerke/tigris')
+library(tigris)
+```
+
+```{r, include = FALSE}
+Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
+
+dec_vars_2020 <-
+  listCensusMetadata(
+    name = '2020/dec/pl',
+    type = 'variables'
+  )
+
+saveRDS(dec_vars_2020, 'dec_vars_2020.rds')
+
+dec_vars_2010 <-
+  listCensusMetadata(
+    name = '2010/dec/pl',
+    type = 'variables'
+  )
+
+saveRDS(dec_vars_2010, 'dec_vars_2010.rds')
+
+dec_vars_2020 <- readRDS('dec_vars_2020.rds')
+dec_vars_2010 <- readRDS('dec_vars_2010.rds')
+```
+
+```{r}
+ala_pop_2020 <-
+  getCensus(
+    name = "dec/pl",
+    vintage = 2020,
+    region = "block:*", 
+    regionin = "state:06+county:001",
+    vars = "P1_001N"
+  ) %>% 
+  transmute(
+    block =
+      paste0(state,county,tract,block),
+    pop = P1_001N
+  )
+
+colnames(ala_pop_2020)[2] <- 'pop_20'
+```
+
+```{r}
+ala_pop_2010 <-
+  getCensus(
+    name = "dec/pl",
+    vintage = 2010,
+    region = "block:*", 
+    regionin = "state:06+county:001",
+    vars = "P001001"
+  ) %>% 
+  transmute(
+    block =
+      paste0(state,county,tract,block),
+    pop = P001001
+  )
+
+colnames(ala_pop_2010)[2] <- 'pop_10'
+```
+
+```{r}
+ala_blocks_2020 <- 
+  blocks('CA', 'Alameda', year = 2020, progress_bar = F
+  ) %>%
+  st_transform(26910) %>%
+  mutate(area = st_area(.))
+
+library(units)
+
+ala_blocks_2020$area <- drop_units(ala_blocks_2020$area)
+ala_blocks_2020_area <- ala_blocks_2020 %>%
+  select(GEOID20, area)
+
+ala_blocks_2020_area <- ala_blocks_2020_area %>% st_set_geometry(NULL)
+
+colnames(ala_blocks_2020_area)[1] <- 'block'
+
+ala_pop_2010_2020 <- 
+  left_join(ala_pop_2020, ala_pop_2010, by = 'block')
+
+ala_pop_2010_2020 <- 
+  left_join(ala_pop_2010_2020, ala_blocks_2020_area, by = 'block')
+
+ala_pop_2010_2020 <- ala_pop_2010_2020 %>%
+  mutate(abs_change = pop_20 - pop_10
+  ) %>%
+  mutate(density_change = (abs_change/area)*4047)  #1 acre = 4047 sq m
+
+ala_blocks_2020 <- ala_blocks_2020 %>%
+  st_transform(4269)
+```
+
+```{r}
+cv_boundary <- places('CA', progress_bar = F) %>%
+  filter(NAME == 'Castro Valley') %>%
+  st_transform(4269)
+
+cv_popchange <- ala_pop_2010_2020 %>%
+  left_join(ala_blocks_2020 %>% select(block = GEOID20)) %>%
+  st_as_sf() %>%
+  st_centroid() %>%
+  .[cv_boundary, ] %>%
+  st_set_geometry(NULL) %>% 
+  left_join(ala_blocks_2020 %>% select(block = GEOID20)) %>% 
+  st_as_sf()
+```
+
+# Analysis of Population Change in Castro Valley, Alameda between 2010 and 2020
+
+```{r}
+mybins <- c(-Inf, -45, -30, -15, 0, 15, 30, 45, 60)
+pop_pal <- colorBin(palette="RdBu", domain=cv_popchange$density_change, bins=mybins)
+mybins2 <- c(-1600, -1200, -800, -400, 0, 400, 800, 1200, 1600)
+pop_pal2 <- colorBin(palette="RdBu", domain=cv_popchange$abs_change, bins=mybins2)
+
+leaflet() %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addPolygons(
+    data = cv_popchange,
+    fillColor = ~pop_pal(density_change),
+    color = 'grey',
+    opacity = 0.5,
+    fillOpacity = 1,
+    weight = 1,
+    group = 'Population Density',
+    label = ~paste0(
+      round(density_change), 
+      " people/acre"
+    ),
+    highlightOptions = highlightOptions(
+      weight = 2,
+      opacity = 1
+    )
+  ) %>%
+  addPolygons(
+    data = cv_popchange,
+    fillColor = ~pop_pal2(abs_change),
+    color = 'grey',
+    opacity = 0.5,
+    fillOpacity = 1,
+    weight = 1,
+    group = 'Population Count',
+    label = ~paste0(
+      round(abs_change), 
+      " persons"
+    ),
+    highlightOptions = highlightOptions(
+      weight = 2,
+      opacity = 1
+    )
+  ) %>%
+  addLegend(
+    data = cv_popchange,
+    pal = pop_pal,
+    values = ~density_change,
+    title = "Change in Population<br>Density (people/acre)",
+  ) %>%
+  addLegend(
+    data = cv_popchange,
+    pal = pop_pal2,
+    values = ~abs_change,
+    title = "Change in Population<br>Count (persons)",
+  ) %>%
+  addLayersControl(
+    overlayGroups = c('Population Count', 'Population Density'),
+    options = layersControlOptions(collapsed = FALSE),
+    position = 'topleft'
+  )
+
+```
+
+Using the 2010 and 2020 Decennial Census data, there appears to be a general slight increase in population density across the whole Castro Valley, with changes in population density largely scattered evenly. The greatest increase in density is found in the western region at more than 20 people/acre. Interestingly, the greatest decrease in population density is also found here, with some blocks seeing a decrease of more than 50 people/acre. However, in contrast with the absolute population count (on an additional layer of the map), the largest influx of people is actually on the eastern region of Castro Valley.
+
+As a suburb in the Bay Area, the population increase in Castro Valley can be ascribed to several reasons. Aside from natural increase over the ten-year period, where families who settled in Castro Valley have expanded their families, it is likely that Castro Valley is an ideal location to relocate to due to its proximity to both San Francisco and San Jose. The localised changes in population density suggests the presence of (re)development projects in the area, with new people relocating to new residential homes and others moving away possibly due to plots of land being acquired for non-residential purposes. Furthermore, Castro Valley has several proposed infrastructural projects in the pipeline, such as a 72-unit affordable apartment building and a large food hall project Castro Valley Marketplace, boosting the economic and socio-cultural vibrancy that draws more people to live in the region.
+
+These maps use the 2020 block shapefile to visualise change in population from 2010 to 2020 because the 2010 shapefile provided more granular spatial data and using the less granular shapefile may result in a lower loss of accuracy. However, as both shapefiles have slight differences in block units due to changes in census tracts over time, a small number of blocks returned 'NA' values while some blocks appearing on freeways have anomalously large changes in population density. Nonetheless, these assumptions and outliers do not detract from the overall trends observed in the maps.
+
+
+
+
