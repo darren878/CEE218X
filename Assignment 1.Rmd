@@ -38,6 +38,7 @@ for(quarter in quarters) {
   saveRDS(pge_17_elec, "pge_17_elec.rds")
 }
 
+pge_17_elec <- pge_17_elec[!duplicated(pge_17_elec[c('ZIPCODE','YEAR', 'MONTH', 'CUSTOMERCLASS')]),]
 
 year <- 2018
 pge_18_elec <- NULL
@@ -148,6 +149,8 @@ for(quarter in quarters) {
   pge_17_gas <- rbind(pge_17_gas,temp)
   saveRDS(pge_17_gas, "pge_17_gas.rds")
 }
+
+pge_17_gas <- pge_17_gas[!duplicated(pge_17_gas[c('ZIPCODE','YEAR', 'MONTH', 'CUSTOMERCLASS')]),]
 
 year <- 2018
 pge_18_gas <- NULL
@@ -363,11 +366,9 @@ pge_com_final2 <-
 
 # PG&E Monthly Electricity and Gas Usage (Residential)
 
-The total electricity and gas usage fluctuates seasonally, peaking each winter between November and March at about 3.5 to 4.0 x 10^10^ kBTU. Generally, the seasonal fluctuation in total energy use is driven by gas usage as electricity usage remains relatively consistent each month, and this can be explained by the role of heating in building systems during winter.
+Both electricity and gas usage fluctuates seasonally, with electricity usage peaking over summer at about 1 x 10^10^ kBTU and gas usage peaking each winter at about 3.5 to 4.0 x 10^10^ kBTU. Generally, fluctuations in total energy usage is driven by gas usage due to the marked increase of more than 2 x 10^10^ kBTU during winter, compared to less than 0.5 x 10^10^ kBTU from electricity usage over summer. This can be explained by the role of heating in building systems during winter.
 
-Between 2019 and 2021, there has been higher peaks in total energy use from about 3.5 x 10^10^ kBTU in 2019 to almost 4 x 10^10^ kBTU in 2021. The increase in energy consumption could be ascribed to people spending more time in their homes for work and education during the COVID-19 pandemic, thereby requiring more energy for building heating.
-
-There appears to be an anomalously high electricity and gas usage in September 2017, which may be due to a flawed dataset.
+There is a less steep decline in gas usage since the start of the COVID-19 pandemic, with gas usage about 0.2 to 0.3 x 10^10^ kBTU higher in April 2020 compared to previous years.There is a new peak in electricity usage in residential buildings in August 2020 at 1.14 x 10^10^ kBTU due to people spending more time in their homes for work and education during the pandemic.
 
 ```{r electricity and gas residential chart - date}
 library(plotly)
@@ -375,24 +376,26 @@ library(plotly)
 pge_chart_res1 <- 
   pge_res_final %>%
   ggplot() +
-  geom_bar(
+  geom_line(
     aes(
       x = DATE %>% factor(),
       y = TOTALBTU,
-      fill = CUSTOMERCLASS
+      color = CUSTOMERCLASS,
+      group = 1
     ),
     stat = "identity",
-    position = "stack"
+    position = "identity"
   ) +
   labs(
     x = "Time",
     y = "kBTU",
     title = "PG&E Territory Monthly Electricity and Gas Usage (Residential) from 2017 to 2021",
-    fill = "Fuel Type"
+    color = "Fuel Type"
   ) +
   theme(axis.text.x = element_text(size = 6, angle = 45, hjust = 1)
   ) +
-  theme(plot.title = element_text(size=10))
+  theme(plot.title = element_text(size=10)
+  )
 
 pge_chart_res1 %>% 
   ggplotly() %>%
@@ -440,29 +443,29 @@ pge_chart_res2 %>%
 
 # PG&E Monthly Electricity and Gas Usage (Commercial)
 
-On the other hand, total electricity and gas usage in the commercial sector are more balanced. There is also a seasonal fluctuation of greater energy use over winter, likely due to heating. There appears to be a sharp decrease in total energy use between February and April 2020 from 1.5 to almost 1.0 x 10^10^ kBTU when the first wave of the COVID-19 pandemic occurred, which can be attributed to the introduction of remote working to reduce social interaction. However, more recent data suggests that people are returning to offices, with total energy use in the first half of 2021 showing a smaller decline compared to 2020.
+On the other hand, total electricity and gas usage in the commercial sector share similar seasonal fluctuations with the residential sector due to energy consumption by building heating systems. There is a sharp decrease in both electricity and gas use between January and June 2020, with electricity and gas use decreasing to about 6.4 x 10^9^ kBTU and 3.7 x 10^9^ kBTU respectively when the first wave of the COVID-19 pandemic occurred, which can be attributed to the introduction of remote working to reduce social interaction. 
 
-The anomalously high electricity and gas usage in September 2017 is also present in this dataset.
-
+There is another sharp drop in electricity usage during the second wave of COVID-19 in November and December 2020, where more people worked away from offices. This is consistent with a lower peak in gas usage in the same period due to a lesser need for building heating, bucking the trend of increasing gas usage during winter from 2017/18 to 2019/20. However, more recent data suggests that people are returning to offices, with electricity usage in the first half of 2021 reaching new peaks of 1.07 x 10^10^ kBTU in June 2021.
 
 ```{r electricity and gas commercial chart}
 pge_chart_com1 <- 
   pge_com_final %>%
   ggplot() +
-  geom_bar(
+  geom_line(
     aes(
       x = DATE %>% factor(),
       y = TOTALBTU,
-      fill = CUSTOMERCLASS
+      color = CUSTOMERCLASS,
+      group = 1
     ),
     stat = "identity",
-    position = "stack"
+    position = "identity"
   ) +
   labs(
     x = "Time",
     y = "kBTU",
     title = "PG&E Territory Monthly Electricity and Gas Usage (Commercial) from 2017 to 2021",
-    fill = "Fuel Type"
+    color = "Fuel Type"
   ) +
   theme(axis.text.x = element_text(size = 6, angle = 45, hjust = 1)
   ) +
@@ -475,7 +478,6 @@ pge_chart_com1 %>%
     yaxis = list(fixedrange = T)
   ) %>% 
   config(displayModeBar = F)
-
 ```
 
 Likewise, grouping the data of the commercial sector into years (2021 data only includes the first two quarters), total energy consumption in 2020 was lower than that in 2019. This is expected due to more people working outside offices. However, the data also shows fluctuations in total energy use from 2017 to 2020, rather than an upward trend that was 'broken' by COVID-19. It must be acknowledged that other factors beyond the COVID-19 pandemic influencing energy use are also at play, such as cost of energy. While we may anticipate an increasing trend of energy consumption over time due to affluence, it may also be mitigated by better design of urban systems to improve energy efficiency.  
