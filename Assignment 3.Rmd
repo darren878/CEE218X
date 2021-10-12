@@ -43,7 +43,9 @@ pums_2019_1yr <- getCensus(
     "HHL",
     "HINCP",
     "WATP",
-    "WATFP"
+    "WATFP",
+    "WAGP",
+    "AGEP"
   )
 )
 ```
@@ -88,24 +90,23 @@ bay_pums <-
 ```{r}
 bay_pums_x1 <-
   bay_pums %>% 
-  filter(!duplicated(SERIALNO)) %>% 
   mutate(
-    WGTP = as.numeric(WGTP),
-    nonenglish_watercost_lowinc = ifelse(
-      (HHL != 1) &
+    PWGTP = as.numeric(PWGTP),
+    old_watercost_lowinc = ifelse(
+        (AGEP >= 60) &
         (WATFP == 3) &
         (WATP > 2000) &
-        (HINCP < 80000),
-      WGTP,
+        (WAGP < 30000),
+      PWGTP,
       0
     )
   ) %>% 
   group_by(PUMA) %>% 
   summarize(
-    sum_nonenglish_watercost_lowinc = 
-      sum(nonenglish_watercost_lowinc, na.rm =T),
-    perc_nonenglish_watercost_lowinc =
-      sum(nonenglish_watercost_lowinc, na.rm =T)/sum(WGTP, na.rm = T)*100
+    sum_old_watercost_lowinc = 
+      sum(old_watercost_lowinc, na.rm =T),
+    perc_old_watercost_lowinc =
+      sum(old_watercost_lowinc, na.rm =T)/sum(PWGTP, na.rm = T)*100
   ) %>% 
   left_join(
     bay_pumas %>% 
@@ -116,30 +117,30 @@ bay_pums_x1 <-
 ```
 
 ```{r}
-sum <- sum(bay_pums_x1$sum_nonenglish_watercost_lowinc)
+sum <- sum(bay_pums_x1$sum_old_watercost_lowinc)
 ```
 
 
-## Vulnerability of Low-Income, Non-English-Speaking Households to High Water Prices during Heat Waves in the Bay Area
+## Vulnerability of Old Individuals Aged 60+ to High Water Prices during Heat Waves in the Bay Area
 
 ```{r}
 pums_pal <- colorNumeric(
   palette = "Oranges",
-  domain = bay_pums_x1$perc_nonenglish_watercost_lowinc
+  domain = bay_pums_x1$perc_old_watercost_lowinc
 )
 
 leaflet() %>%
   addTiles() %>% 
   addPolygons(
     data = bay_pums_x1,
-    fillColor = ~pums_pal(perc_nonenglish_watercost_lowinc),
+    fillColor = ~pums_pal(perc_old_watercost_lowinc),
     color = "white",
     opacity = 0.5,
     fillOpacity = 0.5,
     weight = 1,
     label = ~paste0(
-      round(perc_nonenglish_watercost_lowinc), 
-      "% non-English-speaking households making less than $80K and paying more than $2K/year for water"
+      round(perc_old_watercost_lowinc), 
+      "% individuals aged 60+ making less than $30K and paying more than $2K/year for water"
     ),
     highlightOptions = highlightOptions(
       weight = 2,
@@ -149,12 +150,12 @@ leaflet() %>%
   addLegend(
     data = bay_pums_x1,
     pal = pums_pal,
-    values = ~perc_nonenglish_watercost_lowinc,
-    title = "% non-English-speaking<br>households making less<br>than $80K and paying<br>more than $2K/yr for<br>water"
+    values = ~perc_old_watercost_lowinc,
+    title = "% individuals aged<br>60+ making less<br>than $30K and paying<br>more than $2K/yr for<br>water"
   )
 ```
 
-The price of water has increased at six times the rate of inflation across California. Water prices are increasing in California as water is often obtained from distant sources for several reasons: arid climate, large infrastructure projects and increasing frequency of heat waves, droughts and hot spells. The map shows the percentage of non-English-speaking households making less than \$80,000 and paying more than \$2,000 year for water in the Bay Area. There are several parts of the Bay Area with a significant percentage of vulnerable households, including South San Francisco (more than 20%), Fremont (30 to 33%) and northern and eastern San Jose (30%). In total, 409485 households are vulnerable. During heat waves, water prices further increase due to demand-supply mechanisms. Policy interventions are needed to ensure access to safe, clean and affordable water, such as rate assistance for these households and more flexible payment options to reduce service cuts during heatwaves. 
+The price of water has increased at six times the rate of inflation across California. Water prices are increasing in California as water is often obtained from distant sources for several reasons: arid climate, large infrastructure projects and increasing frequency of heat waves, droughts and hot spells. The map shows the percentage of older individuals aged 60 and above making less than \$30,000 a year and paying more than \$2,000 year for water in the Bay Area. There are several parts of the Bay Area with a significant percentage of vulnerable individuals, including Marin County (17%), North Richmond (14%), Moraga (15%) and Los Gatos (12%). In total, 675596 individuals are vulnerable. During heat waves, water prices further increase due to demand-supply mechanisms, exacerbating old individuals' health vulnerability. Policy interventions are needed to ensure access to safe, clean and affordable water, such as rate assistance for these individuals and more flexible payment options to reduce service cuts during heatwaves. 
 
 
 
