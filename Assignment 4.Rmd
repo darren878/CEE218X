@@ -1,0 +1,448 @@
+---
+title: "CEE 218X Assignment 4"
+author: "Darren Wong"
+date: 10/18/2021
+output: html_document
+---
+```{r setup, include=FALSE, warning=F, message = F}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+```{r, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(censusapi)
+library(plotly)
+Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
+
+acs_var_2019_5yr <-
+  listCensusMetadata(
+    name = '2019/acs/acs5',
+    type = 'variables'
+  )
+```
+
+```{r, include=FALSE}
+census_race_categories <- 
+  c(
+    "White Alone",
+    "Black or African American",
+    "American Indian and Alaska Native Alone",
+    "Asian Alone",
+    "Native Hawaiian and Other Pacific Islander Alone",
+    "Some Other Race Alone",
+    "Two or More Races"
+  )
+
+ala_edu_race <-
+  1:7 %>%
+  map_dfr(function(x){
+    
+    getCensus(
+      name = 'acs/acs5',
+      vintage = 2019,
+      region = 'county:001',
+      regionin = 'state:06',
+      vars = paste0('group(C15002',LETTERS[x],')')
+      ) %>%
+      select(ends_with(c('E', 'M')) & -c(state, NAME)
+      )%>%
+      summarize_all(sum) %>%
+      pivot_longer(
+        everything(),
+        names_to = 'name',
+        values_to = 'estimate'
+      ) %>%
+      left_join(
+        acs_var_2019_5yr %>%
+          select(name,label)
+      ) %>%
+      separate(
+        label,
+        into = c(NA, NA,'gender', 'education'),
+        sep = '!!'
+      ) %>%
+      select(-name) %>%
+      filter(!is.na(education)) %>%
+      mutate(race = census_race_categories[x]
+      )
+})
+```
+
+```{r, include=FALSE}
+ala_edu_race %>%
+  group_by(education,race) %>%
+  summarize(estimate = sum(estimate)) %>%
+  ggplot() +
+  geom_bar(
+    aes(
+      x = education %>% factor(levels = unique(ala_edu_race$education)),
+      y = estimate,
+      fill = race %>% factor(levels = unique(ala_edu_race$race))
+    ),
+    stat = 'identity',
+    position = 'stack'
+  ) +
+  labs(
+    x = 'Educational Attainment',
+    y = 'Proportion of Population 25 years or older',
+    title = 'Alameda Educational Attainment by Race',
+    fill = 'Race'
+  ) +
+  coord_flip() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  ) +
+  guides(
+    fill = guide_legend(
+      reverse = T
+    )
+  )
+```
+# Analysis of Educational Attainment by Race
+
+```{r}
+ala_race_total <-
+  ala_edu_race %>% 
+  group_by(race) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  mutate(education = "Total")
+
+ala_edu_race %>%
+  group_by(education,race) %>% 
+  summarize(estimate = sum(estimate)) %>%
+  dplyr::bind_rows(ala_race_total) %>%
+  ggplot() +
+  geom_bar(
+    aes(
+      x = education %>% factor(levels = rev(c('Total',unique(ala_edu_race$education)))),
+      y = estimate,
+      fill = race %>% factor(levels = rev(unique(ala_edu_race$race)))
+    ),
+    stat = "identity",
+    position = "fill"
+  ) +
+  labs(
+    x = 'Educational Attainment',
+    y = 'Proportion of Population 25 years or older',
+    title = 'Alameda Educational Attainment by Race',
+    fill = 'Race'
+  ) +
+  coord_flip() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T)
+  )
+
+```
+
+```{r, include=FALSE}
+#((sum(ala_race_total$estimate[7])/sum(ala_race_total$estimate))*100) %>% round()
+```
+
+```{r, include=FALSE}
+#((ala_edu_race %>% 
+#  filter(education %in% ala_edu_race$education[1]) %>% 
+#  filter(race == "White Alone") %>% 
+#  pull(estimate) %>% 
+#  sum()) /
+#  (ala_edu_race %>% 
+#    filter(education %in% ala_edu_race$education[1]) %>% 
+#    pull(estimate) %>% 
+#    sum()) * 100) %>% 
+#  round()
+```
+
+```{r}
+#((((ala_edu_race %>% 
+#  filter(education %in% ala_edu_race$education[1]) %>% 
+#  filter(race == "White Alone") %>% 
+#  pull(estimate) %>% 
+#  sum()) /
+#  (ala_edu_race %>% 
+#    filter(education %in% ala_edu_race$education[1]) %>% 
+#    pull(estimate) %>% 
+#    sum())) / (sum(ala_race_total$estimate[7])/sum(ala_race_total$estimate)) - 1) * 100) %>% 
+#  round()
+```
+
+```{r}
+#((ala_edu_race %>% 
+#  filter(education %in% ala_edu_race$education[1]) %>% 
+#  filter(race == "Some Other Race Alone") %>% 
+#  pull(estimate) %>% 
+#  sum()) /
+#  (ala_edu_race %>% 
+#    filter(education %in% ala_edu_race$education[1]) %>% 
+#    pull(estimate) %>% 
+#    sum()) * 100) %>% 
+#  round()
+```
+
+```{r}
+#((ala_edu_race %>% 
+#  filter(education %in% ala_edu_race$education[4]) %>% 
+#  filter(race == "Black or African American") %>% 
+#  pull(estimate) %>% 
+#  sum()) /
+#  (ala_edu_race %>% 
+#    filter(education %in% ala_edu_race$education[4]) %>% 
+#    pull(estimate) %>% 
+#    sum()) * 100) %>% 
+#  round()
+```
+
+```{r}
+#((((ala_edu_race %>% 
+#  filter(education %in% ala_edu_race$education[4]) %>% 
+#  filter(race == "Black or African American") %>% 
+#  pull(estimate) %>% 
+#  sum()) /
+#  (ala_edu_race %>% 
+#    filter(education %in% ala_edu_race$education[4]) %>% 
+#    pull(estimate) %>% 
+#    sum())) / (sum(ala_race_total$estimate[3])/sum(ala_race_total$estimate)) - 1) * 100) %>% 
+#  round()
+```
+
+
+```{r}
+#((ala_edu_race %>% 
+#  filter(education %in% ala_edu_race$education[4]) %>% 
+#  filter(race == "Asian Alone") %>% 
+#  pull(estimate) %>% 
+#  sum()) /
+#  (ala_edu_race %>% 
+#    filter(education %in% ala_edu_race$education[4]) %>% 
+#    pull(estimate) %>% 
+#    sum()) * 100) %>% 
+#  round()
+```
+
+```{r}
+#((((ala_edu_race %>% 
+#  filter(education %in% ala_edu_race$education[4]) %>% 
+#  filter(race == "Asian Alone") %>% 
+#  pull(estimate) %>% 
+#  sum()) /
+#  (ala_edu_race %>% 
+#    filter(education %in% ala_edu_race$education[4]) %>% 
+#    pull(estimate) %>% 
+#    sum())) / (sum(ala_race_total$estimate[2])/sum(ala_race_total$estimate)) - 1) * 100) %>% 
+#  round()
+```
+
+The filled bar chart displays the proportion of Alameda's population over age 25 and their educational attainment by race. A disproportionate education attainment is clear - although Alameda has a "White Alone" population of 43%, they make up only 29% of Alameda's population with less than a high school diploma. If education were 'race-blind', these percentages would be the same, but instead, non-White individuals appear to be 34% less likely to have less than a high school diploma than expected. 
+
+On the other hand, only 7% of those with a bachelor's degree or higher are individuals from the 'Black or African American' population, which is 38% less likely than expected. Conversely, 38% of individuals with a bachelor's degree or higher are individuals from the 'Asian Alone' population, which is 23% more than we expected. Interestingly, from an absolute percentage number, the 'Some Other Race Alone' population also appears to be marginalised in educational attainment, with the bulk of the population having a high school graduate certificate or less. However, the breakdown of minority races within this subpopulation is unknown from the data and having this data may provide a more granular analysis for discussion.
+
+Therefore, this highlights unequal access to key educational resources, including skilled teachers and quality curriculum. Students likely receive different learning opportunities based on their social status or race, and their educational attainment is intricately intertwined with other socio-economic indicators like income inequality and discrimination. Future research could explore geospatial visualisation of Alameda's population by educational attainment to understand which populations are clustered in property-poor urban districts that have worse access to quality education. Moreover, educational policies should seek to better distribute opportunities to all in a society that is becoming increasingly dependent on knowledge.
+
+```{r, include=FALSE}
+acs_var_2019_1yr <-
+  listCensusMetadata(
+    name = '2019/acs/acs1',
+    type = 'variables'
+  )
+```
+
+```{r, include=FALSE}
+census_race_categories_2 <- 
+  c(
+    "White Alone",
+    "Black or African American",
+    "American Indian and Alaska Native Alone",
+    "Asian Alone",
+    "Native Hawaiian and Other Pacific Islander Alone",
+    "Some Other Race Alone",
+    "Two or More Races",
+    "White Alone, Not Latinx",
+    "Latinx"
+  )
+
+ala_edu_eth_lat <-
+  8:9 %>%
+  map_dfr(function(x){
+    
+    getCensus(
+      name = 'acs/acs1',
+      vintage = 2019,
+      region = 'county:001',
+      regionin = 'state:06',
+      vars = paste0('group(C15002',LETTERS[x],')')
+      ) %>%
+      select(ends_with(c('E', 'M')) & -c(state, NAME)
+      )%>%
+      summarize_all(sum) %>%
+      pivot_longer(
+        everything(),
+        names_to = 'name',
+        values_to = 'estimate'
+      ) %>%
+      left_join(
+        acs_var_2019_1yr %>%
+          select(name,label)
+      ) %>%
+      separate(
+        label,
+        into = c(NA, NA,'gender', 'education'),
+        sep = '!!'
+      ) %>%
+      select(-name) %>%
+      filter(!is.na(education)) %>%
+      mutate(ethnicity = census_race_categories_2[x]
+      )
+})
+
+```
+
+```{r, include=FALSE}
+ala_edu_eth_total <-
+    getCensus(
+      name = 'acs/acs1',
+      vintage = 2019,
+      region = 'county:001',
+      regionin = 'state:06',
+      vars = 'group(C15002)'
+      ) %>%
+      select(ends_with(c('E', 'M')) & -c(state, NAME)
+      )%>%
+      summarize_all(sum) %>%
+      pivot_longer(
+        everything(),
+        names_to = 'name',
+        values_to = 'estimate'
+      ) %>%
+      left_join(
+        acs_var_2019_1yr %>%
+          select(name,label)
+      ) %>%
+      separate(
+        label,
+        into = c(NA, NA,'gender', 'education'),
+        sep = '!!'
+      ) %>%
+      select(-name) %>%
+      filter(!is.na(education)
+      ) %>%
+      mutate(ethnicity = 'Total') %>%
+      mutate(
+        education = case_when(
+          education == 'Less than 9th grade' ~ 'Less than high school diploma',
+          education == '9th to 12th grade, no diploma' ~ 'Less than high school diploma',
+          education == 'Some college, no degree' ~ "Some college or associate's degree",
+          education == "Associate's degree" ~ "Some college or associate's degree",
+          education == "Bachelor's degree" ~ "Bachelor's degree or higher",
+          education == "Graduate or professional degree" ~ "Bachelor's degree or higher",
+          TRUE ~ 'High school graduate (includes equivalency)'
+        )
+      ) %>%
+  group_by(education,ethnicity) %>%
+  summarize(estimate = sum(estimate))
+
+```
+
+```{r, include=FALSE}
+
+ala_edu_eth_lat <- ala_edu_eth_lat %>%
+  group_by(education,ethnicity) %>% 
+  summarize(estimate = sum(estimate)
+  ) %>%
+  dplyr::bind_rows(ala_edu_eth_total)
+
+ala_edu_eth_lat <- ala_edu_eth_lat%>%
+  group_by(education) %>%
+  summarise(estimate = estimate[ethnicity=='Total'] - estimate[ethnicity=='White Alone, Not Latinx'] - estimate[ethnicity == 'Latinx'], ethnicity = 'Not White, Not Latinx') %>%
+  bind_rows(ala_edu_eth_lat)
+
+ala_edu_eth_lat <- ala_edu_eth_lat[!ala_edu_eth_lat$ethnicity == "Total", ]
+  
+```
+
+# Analysis of Educational Attainment by Ethnicity
+
+```{r}
+ala_edu_eth_total2 <-
+  ala_edu_eth_lat %>% 
+  group_by(ethnicity) %>% 
+  summarize(estimate = sum(estimate)) %>% 
+  mutate(education = "Total")
+
+ala_edu_eth_lat %>%
+  dplyr::bind_rows(ala_edu_eth_total2) %>%
+  ggplot() +
+  geom_bar(
+    aes(
+      x = education %>% factor(levels = rev(c('Total', 'Less than high school diploma','High school graduate (includes equivalency)',"Some college or associate's degree","Bachelor's degree or higher"))),
+      y = estimate,
+      fill = ethnicity %>% factor(levels = rev(c('White Alone, Not Latinx', 'Latinx', 'Not White, Not Latinx')))
+    ),
+    stat = "identity",
+    position = "fill"
+  ) +
+  labs(
+    x = 'Educational Attainment',
+    y = 'Proportion of Population 25 years or older',
+    title = 'Alameda Educational Attainment by Ethnicity',
+    fill = 'Ethnicity'
+  ) +
+  coord_flip() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  )  +
+  guides(
+    fill = guide_legend(
+      reverse = T)
+  )
+```
+
+```{r}
+#((sum(ala_edu_eth_total2$estimate[1])/sum(ala_edu_eth_total2$estimate))*100) %>% round()
+```
+
+```{r}
+#((ala_edu_eth_lat %>% 
+ # filter(education %in% ala_edu_eth_lat$education[5]) %>% 
+#  filter(ethnicity == "Latinx") %>% 
+#  pull(estimate) %>% 
+#  sum()) /
+#  (ala_edu_eth_lat %>% 
+#    filter(education %in% ala_edu_eth_lat$education[5]) %>% 
+#    pull(estimate) %>% 
+#    sum()) * 100) %>% 
+#  round()
+```
+
+```{r}
+#((ala_edu_eth_lat %>% 
+#  filter(education %in% ala_edu_eth_lat$education[2]) %>% 
+#  filter(ethnicity == "Latinx") %>% 
+#  pull(estimate) %>% 
+#  sum()) /
+#  (ala_edu_eth_lat %>% 
+#    filter(education %in% ala_edu_eth_lat$education[2]) %>% 
+#    pull(estimate) %>% 
+#    sum()) * 100) %>% 
+#  round()
+```
+
+```{r}
+#((((ala_edu_eth_lat %>% 
+#  filter(education %in% ala_edu_eth_lat$education[5]) %>% 
+#  filter(ethnicity == "Latinx") %>% 
+#  pull(estimate) %>% 
+#  sum()) /
+#  (ala_edu_eth_lat %>% 
+#    filter(education %in% ala_edu_eth_lat$education[5]) %>% 
+#    pull(estimate) %>% 
+#    sum())) / (sum(ala_edu_eth_lat$estimate[1])/sum(ala_race_total$estimate)) - 1) * 100) %>% 
+#  round()
+```
+
+We see a similarly disproportionate educational attainment by ethnicity, especially for the Latinx population. Although they make up 19% of the population, only 9% have a bachelor's degree or higher while a staggering 33% do not have a high school diploma. In other words, the Latinx population is 28% more likely to not have a high school diploma and 65% less likely to have a bachelor's degree than expected. This highlights the intersectionality of race and ethnicity in (the lack of) educational attainment, which education policy must consider and address.
