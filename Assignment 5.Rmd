@@ -149,7 +149,7 @@ ces4_clean2[which.min(ces4_clean2$residuals), 3]
 ces4_clean2[which.min(ces4_clean2$residuals), 4]
 ```
 
-The census tract with the most negative residuals is 6037265301, at the University of California, Los Angeles (Los Angeles county), with a negative residual of -2.404633. A negative residual means that the regression line overestimated the number of asthma cases in UCLA for its level of PM2.5. This could be due to a younger and healthier student population at UCLA who do not require emergency department visits for asthma. UCLA may also have good healthcare resources to assist asthmatic individuals before asthma events escalate into a more serious emergency.
+The census tract with the most negative residuals is 6037265301, at the University of California, Los Angeles (Los Angeles county), with a negative residual of -2.404633. A negative residual means that the regression line overestimated the number of asthma cases in UCLA for its level of PM2.5. It may be a result of distortion due to the age adjusted rate used to calculate asthma data as UCLA comprises a large population of students so other age groups who may be more vulnerable to serious asthmatic events are less represented. UCLA may also have good healthcare resources to assist asthmatic individuals before asthma events escalate into a more serious emergency.
 
 
 
