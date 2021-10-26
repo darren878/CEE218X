@@ -25,8 +25,19 @@ ces4 <- read_excel("calenviroscreen40resultsdatadictionary_F_2021.xlsx")
 ```
 
 ```{r}
+bay_counties <- c("Alameda",
+    "Contra Costa",
+    "Marin",
+    "Napa",
+    "San Francisco",
+    "San Mateo",
+    "Santa Clara",
+    "Solano",
+    "Sonoma")
+
 ces4_clean <- ces4 %>% 
-  dplyr::select(!ends_with("Pctl"))
+  dplyr::select(!ends_with("Pctl")) %>%
+  filter(ces4$`California County` %in% bay_counties)
 ```
 
 ```{r}
@@ -47,7 +58,7 @@ mapview(ces4_map, zcol = 'Asthma',
         layer.name ='Age-adjusted rate of<br>emergency department visits<br>for asthma per<br>10,000 people (averaged<br>over 2015 to 2017)')
 ```
 
-The first map shows the age-adjusted rate of emergency department visits for asthma per 10,000 people, averaged over 2015 to 2017, in the Bay Area. Asthma prevalence fluctuates at a rate of 50 to 150 in most of the Bay Area, with highest prevalence seen in Vallejio at more than 200, followed by Richmond and San Leandro.
+The first map shows the age-adjusted rate of emergency department visits for asthma per 10,000 people, averaged over 2015 to 2017, in the Bay Area. Asthma prevalence fluctuates at a rate of 50 to 150 in most of the Bay Area, with highest prevalence seen in Central and Western Bay Area, such as Vallejo at more than 200, followed by San Leandro.
 
 
 
@@ -55,7 +66,7 @@ The first map shows the age-adjusted rate of emergency department visits for ast
 mapview(ces4_map, zcol = 'PM2.5', layer.name = 'Annual mean concentration<br>of PM2.5 over 2015 to 2017<br>(microgram/cubic meter)')
 ```
 
-The second map shows the annual mean concentration of PM2.5, averaged over 2015 to 2017, in the Bay Area. The PM2.5 concentration is lowest in the north and western parts of the Bay Area at about 2 to 6 micrograms/cubic meter. The highest levels of PM2.5 in the Bay Area are found in clusters, mostly in the middle of the Bay Area, such as Rancho Cucamonga and Bakersfield.
+The second map shows the annual mean concentration of PM2.5, averaged over 2015 to 2017, in the Bay Area. The PM2.5 concentration is lowest in the northern and southern parts of the Bay Area at about 6 to 7 micrograms/cubic meter. The highest levels of PM2.5 in the Bay Area are found in clusters, mostly in the middle of the Bay Area, such as Oakland and Napa at 10 micrograms/cubic meter.
 
 # Normal Regression Model
 
@@ -85,7 +96,7 @@ model <- lm(Asthma ~ PM2.5, ces4_clean2)
 print(summary(model))
 ```
 
-An increase of 1.7228 micrograms/cubic meter in PM2.5 is associated with an increase of 1 visit to the asthma emergency department per 10,000 people. Variation in PM2.5 explains 1.48% of the variation in asthma.
+An increase of 1 micrograms/cubic meter in PM2.5 is associated with an increase of nearly 20 visits to the asthma emergency department per 10,000 people. Variation in PM2.5 explains 9.55% of the variation in asthma.
 
 ```{r}
 plot(density(residuals(model)))
@@ -114,7 +125,7 @@ model2 <- lm(log(Asthma) ~ PM2.5, ces4_clean2)
 print(summary(model2))
 ```
 
-An increase of e^0.04387 = 1.0448 micrograms/cubic meter in PM2.5 is associated with an increase of 1 visit to the asthma emergency department per 10,000 people. Variation in PM2.5 explains 2.67% of the variation in log(Asthma).
+An increase of 1 microgram/cubic meter in PM2.5 is associated with an increase of e^0.35633 = 1.43 visits to the asthma emergency department per 10,000 people. Variation in PM2.5 explains 9.97% of the variation in log(Asthma).
 
 ```{r}
 plot(density(residuals(model2)))
@@ -149,7 +160,7 @@ ces4_clean2[which.min(ces4_clean2$residuals), 3]
 ces4_clean2[which.min(ces4_clean2$residuals), 4]
 ```
 
-The census tract with the most negative residuals is 6037265301, at the University of California, Los Angeles (Los Angeles county), with a negative residual of -2.404633. A negative residual means that the regression line overestimated the number of asthma cases in UCLA for its level of PM2.5. It may be a result of distortion due to the age adjusted rate used to calculate asthma data as UCLA comprises a large population of students so other age groups who may be more vulnerable to serious asthmatic events are less represented. UCLA may also have good healthcare resources to assist asthmatic individuals before asthma events escalate into a more serious emergency.
+The census tract with the most negative residuals is 6085513000 at Stanford University, with a negative residual of -2.00402. A negative residual means that the regression line overestimated the number of asthma cases in Stanford for its level of PM2.5. It may be a result of distortion due to the age adjusted rate used to calculate asthma data as Stanford comprises a large population of students so other age groups who may be more vulnerable to serious asthmatic events are less represented. Stanford may also have good healthcare resources to assist asthmatic individuals before asthma events escalate into a more serious emergency.
 
 
 
