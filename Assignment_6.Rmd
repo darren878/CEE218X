@@ -1,0 +1,272 @@
+---
+title: "CEE 218X Assignment 6"
+author: Darren Wong
+date: 10/30/2021
+output: html_document
+---
+# Children's Lead Risk from Housing
+
+```{r setup, include=FALSE, warning = F, message = F}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+```{r}
+library(censusapi)
+library(tidyverse)
+library(tigris)
+library(sf)
+library(leaflet)
+library(mapview)
+```
+
+```{r, include=FALSE}
+
+Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
+
+pums_2019_1yr <- getCensus(
+   name = "acs/acs1/pums",
+   vintage = 2019,
+   region = "public use microdata area:*",
+   regionin = "state:06",
+   vars = c(
+     "SERIALNO",
+     "SPORDER",
+     "PWGTP",
+     "WGTP",
+     "YBL",
+     "BLD",
+     "TEN",
+     "MV",
+     "HINCP",
+     "AGEP"
+   )
+ )
+saveRDS(pums_2019_1yr, "a6_pums.rds")
+pums_2019_1yr <- readRDS("a6_pums.rds")
+
+ca_pumas <-
+  pumas("CA", cb = T, progress_bar = F)
+
+sf_boundary <-
+  counties("CA", cb = T, progress_bar = F) %>%
+  filter(NAME == "San Francisco")
+
+sf_pumas <-
+  ca_pumas %>% 
+  st_centroid() %>% 
+  .[sf_boundary, ] %>% 
+  st_drop_geometry() %>% 
+  left_join(ca_pumas %>% select(GEOID10)) %>% 
+  st_as_sf()
+```
+
+```{r}
+mapview(sf_pumas)
+```
+There are three strange geographic anomalies, but these do not affect the analysis of children's lead risk from housing.
+
+```{r}
+sf_pums <- pums_2019_1yr %>% 
+  mutate(
+    PUMA = str_pad(public_use_microdata_area,5,"left","0")
+  ) %>% 
+  filter(PUMA %in% sf_pumas$PUMACE10)
+
+sf_pums_clean <- sf_pums %>%
+  mutate(
+    YBL = as.numeric(YBL),
+    AGEP = as.numeric(AGEP),
+    HINCP = as.numeric(HINCP)
+  ) %>% 
+  filter(YBL %in% 1:3) %>%
+  arrange(AGEP) %>%
+  group_by(SERIALNO) %>%
+  summarize_all(first)
+```
+
+```{r}
+sf_pums_regression <- sf_pums_clean %>%
+  mutate(
+    leadrisk = ifelse(
+      AGEP <= 6 & HINCP <= 90000,
+      1,
+      0
+    )
+  )
+```
+
+```{r}
+sf_pums_regression <- sf_pums_regression %>%
+  mutate(
+    BLD = BLD %>%
+      factor(
+        levels = sf_pums_regression$BLD %>%
+          unique() %>%
+          as.numeric() %>%
+          sort()
+      ),
+    TEN = TEN %>%
+      factor(
+        levels = sf_pums_regression$TEN %>%
+          unique() %>%
+          as.numeric() %>%
+          sort()
+      ),
+    MV = MV %>%
+      factor(
+        levels = sf_pums_regression$MV %>%
+          unique() %>%
+          as.numeric() %>%
+          sort()
+      ),
+    PUMA = PUMA %>%
+      factor(
+        levels = sf_pums_regression$PUMA %>%
+          unique() %>%
+          sort()
+      )
+  )
+```
+
+```{r}
+logit_model <- glm(
+  leadrisk ~ BLD + TEN + MV + PUMA,
+  family = quasibinomial(),
+  data = sf_pums_regression
+)
+
+print(summary(logit_model))
+```
+
+The logistic regression model shows that the following factors are statistically significant factors contributing to children's lead risk from housing: rented homes and homes located in PUMA 07504, 07506 and 07507.
+
+```{r}
+set.seed(5)
+a <- sample_n(sf_pums_regression, 1, replace = FALSE, weight = NULL)
+```
+
+```{r}
+predict(logit_model, data.frame(a), type='response')
+```
+
+Testing a random observation from the data set, a household (SERIALNO: 2019HU0528877) in PUMA 07506 with a household income of $102,000, youngest person living in the home being 65 years and the following characteristics - one-family house detached built in 1939 or earlier, rented, and moved in 30 years or more - has a 0.0167 probability of meeting the conditions of being a low-income family with a child with lead risk.
+
+```{r}
+test_predicted <-
+  predict(logit_model, newdata = sf_pums_regression, type = 'response')
+
+summary_2x2 <-
+  sf_pums_regression %>%
+  mutate(
+    leadrisk = ifelse(
+      leadrisk == 1,
+      'Yes',
+      'No'
+    )
+  ) %>%
+  pull(leadrisk) %>%
+  table(test_predicted >= 0.1)
+
+print(summary_2x2)
+```
+
+The number of records who had no lead risk but our model incorrectly predicted them to have lead risk (i.e. Type 1 errors - false positives) is in the top right cell. The bottom left cell is the number of records who have lead risk but our model incorrectly predicted them to not have lead risk (i.e. Type 2 errors - false negatives). 
+
+They would mail out 59 postcards (TRUE values), but only 8 would reach low-income households with children (8/59 = 13.6%). The percentage of all at-risk children likely to be reached is 8/46 = 17.4%.
+
+To improve the strategy of identifying children with lead risk, we can reduce the sensitivity, in this case, the threshold score, to below 0.10 in order to capture more potential instances. A wider range of variables relevant to identifying lead risk can be used to triangulate the model and improve its accuracy as well, such as health metrics. Lastly, the quantitative approach here can be complement with qualitative information from health non-profit organisations working in San Francisco who know the ground.
+
+```{r, include=FALSE}
+predicted_score <- predict(logit_model, data.frame(sf_pums_regression), type='response')
+sf_pums_regression <- cbind(sf_pums_regression, predicted_score)
+
+sf_pums_regression_filter <- sf_pums_regression[sf_pums_regression$predicted_score >= 0.1, ]
+
+table(sf_pums_regression_filter$BLD)
+table(sf_pums_regression_filter$YBL)
+table(sf_pums_regression_filter$MV)
+```
+
+Filtering out the data to describe the households which exceeded the threshold score of 0.10, most of them are one-family house detached (40 of 59 observations) while the remaining are mostly one-family house attached (18 observations). Most tend to be older buildings - 36 observations are old buildings built in 1939 or earlier while 14 and 9 observations are 1940 to 1949 and 1950 to 1959 respectively. Lastly, most households moved into the house or apartment between 2 to 4 years (25 of 59 observations) or between 5 to 9 years (27 of 59 observations). 
+
+# Considering Housing Weights
+
+```{r}
+pums_hca_2019_1yr <- read_csv('psam_h06.csv')
+
+sf_pums_regression_2 <- 
+  left_join(sf_pums_regression, pums_hca_2019_1yr, by = 'SERIALNO')
+
+sf_pums_weights <- sf_pums_regression_2 %>%
+  select(starts_with("WGTP"))
+
+sf_pums_weights <- sf_pums_weights %>%
+  select(-c('WGTP.x', 'WGTP.y'))
+```
+
+```{r}
+library(survey)
+
+logit_survey_design <- svrepdesign(
+  data = sf_pums_regression,
+  type = "ACS",
+  repweights = sf_pums_weights,
+  weights = ~as.numeric(WGTP)
+)
+
+logit_survey_model <- svyglm(
+  formula = leadrisk ~ BLD + TEN + MV + PUMA,
+  family = quasibinomial(),
+  design = logit_survey_design
+)
+
+
+print(summary(logit_survey_model))
+```
+
+The new logistic regression model shows that the following factors are statistically significant factors contributing to children's lead risk from housing: building types (one-family house detached, one-family house attached, 2 apartments, 3 to 4 apartments, 5 to 9 apartments, 50 or more apartments), and homes located in PUMA 07504, 07506 and 07507.
+
+
+```{r}
+test_predicted_2 <-
+  predict(logit_survey_model, newdata = sf_pums_regression, type = 'response')
+
+summary_2x2_2 <-
+  sf_pums_regression_2 %>%
+  mutate(
+    leadrisk = ifelse(
+      leadrisk == 1,
+      'Yes',
+      'No'
+    )
+  ) %>%
+  pull(leadrisk) %>%
+  table(test_predicted_2 >= 0.1)
+
+print(summary_2x2_2)
+```
+
+With the new model, the organisation will mail out 112 postcards, but only 13 would reach low-income households with children (13/112 = 11.6%). The percentage of all at-risk children likely to be reached is 13/46 = 28.3%, which is higher than the model without accounting for replicate weights.
+
+```{r, include=FALSE}
+
+sf_pums_regression_2 <- cbind(sf_pums_regression, test_predicted_2)
+sf_pums_regression_2_filter <- sf_pums_regression_2[sf_pums_regression_2$response >= 0.1, ]
+
+table(sf_pums_regression_2_filter$BLD)
+table(sf_pums_regression_2_filter$YBL)
+table(sf_pums_regression_2_filter$MV)
+```
+
+Filtering out the data to describe the households which exceeded the threshold score of 0.10, most of them are also one-family house detached (62 of 112 observations) while the remaining are mostly one-family house attached (13 observations) or 3 to 4 apartments (30 observations). Most tend to be older buildings - 65 observations are old buildings built in 1939 or earlier while 22 and 25 observations are 1940 to 1949 and 1950 to 1959 respectively. Lastly, most households moved into the house or apartment between 2 to 4 years (41 of 112 observations) or between 5 to 9 years (54 of 112 observations). 
+
+
+
+
+
+
+
+
+
+
+
