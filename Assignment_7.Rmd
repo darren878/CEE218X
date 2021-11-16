@@ -1,0 +1,294 @@
+---
+title: "CEE 218X Assignment 7"
+author: Darren Wong
+date: 11/12/2021
+output: html_document
+---
+
+# Difference-in-Differences Analysis of BART Station
+
+```{r setup, include=FALSE, warning = F, message = F}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+The difference-in-differences method is a quasi-experimental approach that compares the changes in outcomes over time between a 'treated group' and a 'control group'. It takes the before-after difference in the treatment group's outcomes, controlling for factors that are constant over time in that group. Then to capture time-varying factors, difference-in-differences also takes the before-after difference in the control group, which was exposed to the same set of environmental conditions as the treatment group. It then subtracts the differences, leaving us with the impact estimation.
+
+A difference-in-differences analysis was conducted to understand the impact of the new BART station, Antioch Station, which opened in mid-2018, on the surrounding neighborhoods. We might expect that with greater access to the BART network, more individuals living in neighborhoods around the BART station may use BART to commute to work. It can be hypothesised that the difference-in-differences analysis may reveal an increase in train ridership relative to similar populations in the Bay Area that did not experience a change in train access.
+
+```{r, include=FALSE}
+library(tigris)
+library(tidyverse)
+library(tidycensus)
+library(sf)
+library(censusapi)
+library(leaflet)
+library(StatMatch)
+
+Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
+
+ca_pumas <-
+  pumas("CA", cb = T, progress_bar = F)
+
+bay_county_names <-
+  c(
+    "Alameda",
+    "Contra Costa",
+    "Marin",
+    "Napa",
+    "San Francisco",
+    "San Mateo",
+    "Santa Clara",
+    "Solano",
+    "Sonoma"
+  )
+
+bay_counties <-
+  counties("CA", cb = T, progress_bar = F) %>%
+  filter(NAME %in% bay_county_names)
+
+bay_pumas <-
+  ca_pumas %>% 
+  st_centroid() %>% 
+  .[bay_counties, ] %>% 
+  st_drop_geometry() %>% 
+  left_join(ca_pumas %>% select(GEOID10)) %>% 
+  st_as_sf()
+```
+
+```{r}
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = bay_pumas,
+    weight = 1,
+    color = "gray",
+    label = ~PUMACE10
+  ) %>% 
+  addMarkers(
+    lng = -121.7823006,
+    lat = 37.9957278
+  ) %>% 
+  addPolygons(
+    data = bay_pumas %>% 
+      filter(PUMACE10 == "01309")
+  )
+```
+The Antioch BART station (point marker) has a longitude and latitude of -121.7823 and 37.9957 respectively. The neighborhood identified for analysis is Brentwood, just east of the new BART station, where we expect the 'treatment' to be experienced. Brentwood was chosen as the neighborhoods immediately adjacent or on the north and west of Brentwood have existing BART stations, thereby diluting the effect of the new BART station on populations that previously did not have convenient access. Brentwood may be a promising site of study as residents may now find a car trip to the BART station and a transfer to BART a viable option. 
+
+```{r, include=FALSE}
+pums_2014_2019 <- readRDS('pums_2014_2019_wts.rds')
+  
+pums_bart <- pums_2014_2019 %>%
+  mutate(
+    PWGTP = as.numeric(PWGTP),
+    bart = ifelse(
+      JWTR %in% c("4"),
+      PWGTP,
+      0
+    )
+  ) %>% 
+  group_by(PUMA, year) %>% 
+  summarize(
+    pop = sum(PWGTP),
+    bart = sum(bart)
+  )
+```
+
+```{r}
+pums_bart_clean <-
+  pums_bart %>% 
+  select(-pop) %>% 
+  pivot_wider(
+    names_from = year,
+    values_from = bart
+  )
+```
+
+```{r, include=FALSE}
+obs_matrix <-
+  pums_bart_clean %>% 
+  ungroup() %>% 
+  select(`2014`,`2015`,`2016`,`2017`) %>% 
+  as.matrix()
+
+dist_matrix <- mahalanobis.dist(obs_matrix)
+
+rownames(dist_matrix) <- pums_bart_clean$PUMA
+colnames(dist_matrix) <- pums_bart_clean$PUMA
+
+match <- dist_matrix["01309",] %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>% 
+  rename(
+    PUMA = rowname,
+    match = "."
+  ) %>% 
+  right_join(
+    pums_bart_clean
+  ) %>% 
+  arrange(match) %>% 
+  .[1:11, ] %>% 
+  left_join(bay_pumas %>% select(PUMA = PUMACE10)) %>% 
+  st_as_sf()
+```
+
+```{r}
+leaflet() %>% 
+  addTiles() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  addPolygons(
+    data = match[1, ],
+    color = "red",
+    label = ~PUMA
+  ) %>% 
+  addPolygons(
+    data = match[-1, ],
+    label = ~PUMA
+  )
+```
+
+Comparing BART ridership trends from 2014 to 2017 and applying the Mahalonobis matching technique, the following 10 PUMAs in blue are similar to PUMA 01309. 
+
+```{r}
+match_pumas <-
+  match %>% 
+  filter(!PUMA %in% c("01309")) %>% 
+  st_drop_geometry() %>% 
+  select(-match) %>% 
+  pivot_longer(
+    -PUMA,
+    names_to = "year",
+    values_to = "bart"
+  ) %>%
+  group_by(
+    year
+  ) %>% 
+  summarize(
+    bart = mean(bart),
+    PUMA = "Similar PUMAs"
+  )
+
+treatment_pumas <-
+  match %>% 
+  filter(PUMA %in% c("01309")) %>% 
+  select(-match) %>% 
+  st_drop_geometry() %>% 
+  pivot_longer(
+    -PUMA,
+    names_to = "year",
+    values_to = "bart"
+  )
+
+rbind(
+  treatment_pumas,
+  match_pumas
+) %>% 
+  ggplot(
+    aes(
+      x = as.numeric(year),
+      y = bart,
+      color = PUMA
+    )
+  ) +
+  geom_line() +
+  geom_vline(xintercept = 2018, linetype = "dashed") +
+  labs(
+    title = "Brentwood vs. control neighborhoods, BART ridership",
+    x = "Year",
+    y = "BART commute riders"
+  )
+```
+
+Based on the graph, the selected PUMA (01309) has an increase in BART ridership relative to the control PUMAs between 2017 to 2019 after the construction of the Antioch station in mid-2018. Running a difference-in-differences regression model to find the interaction between the treatment unit and the time of treatment, it appears that the Antioch BART station in 2018 has an estimated impact of about 1097 new BART commuters, which is statistically significant (p-value < 0.001).
+
+```{r}
+transit_did <-
+  match %>% 
+  st_drop_geometry() %>% 
+  select(-match) %>% 
+  pivot_longer(
+    -PUMA,
+    names_to = "year",
+    values_to = "bart"
+  ) %>% 
+  mutate(
+    year = year %>% as.numeric(),
+    time = ifelse(year >= 2018, 1, 0),
+    treated = ifelse(PUMA == "01309", 1, 0)
+  )
+
+did_reg <- lm(bart ~ treated*time, data = transit_did)
+
+print(summary(did_reg))
+```
+
+```{r, include=FALSE}
+weighted_model <- transit_did %>%
+  lm(bart ~ treated*time,
+     data = .
+     )
+
+replicates_model <-
+  1:80 %>% 
+  map_dfr(function(x){
+    
+    pums_2014_2019 %>% 
+      rename(replicate = paste0("PWGTP", x)) %>%
+      mutate(PWGTP = as.numeric(PWGTP),
+             bart = ifelse(
+               JWTR %in% c("4"),
+               PWGTP,
+                0)
+      ) %>% 
+      group_by(PUMA, year) %>% 
+      summarize(
+        pop = sum(PWGTP),
+        bart = sum(bart)
+      ) %>%
+      filter(PUMA %in% match$PUMA) %>%
+      mutate(
+        year = year %>% as.numeric(),
+        time = ifelse(year >= 2018, 1, 0),
+        treated = ifelse(PUMA == "01309", 1, 0)
+      ) %>%
+      lm(
+        bart ~ treated*time,
+        data = .
+      ) %>% 
+      .$coefficients %>% 
+      as.data.frame() %>% 
+      rownames_to_column()
+  })
+
+weighted_model_summary <- replicates_model %>% 
+  rename(replicate = ".") %>% 
+  left_join(
+    weighted_model$coefficients %>% 
+      as.data.frame() %>% 
+      rownames_to_column() %>% 
+      rename(base = ".")
+  ) %>% 
+  group_by(rowname) %>% 
+  summarize(
+    stderr = sqrt(4/80*sum((base-replicate)^2)),
+    base = first(base)
+  ) %>% 
+  select(
+    rowname,
+    base,
+    stderr
+  )
+```
+
+After accounting for replicate weights, the standard deviation of the new model became negligible (practically zero), meaning that the model is more accurate in representing the causal relationship behind the effect of the new station between the treated PUMA and other control PUMAs. 
+
+There are some choices and assumptions made in this analysis, such as:
+
+1. It is assumed that respondents picked 'Subway or elevated car' in the ACS questionnaire to represent a BART commute trip.
+
+2. The BART station opened in mid-2018 and PUMS responses could have been sampled . Additional years (both before and after the treatment) can cause control PUMAs to no longer be appropriate given their exposure to similar kinds of treatments, such as new stations after 2019 in other areas.
+
+3. Due to limitations in the granularity of spatial data, the particular PUMA chosen as the 'treated' group may have been too big to see the relevant effect, which could have been limited to neighborhoods within biking or walking distance of the station. Conversely, we may not have picked enough PUMAs if most riders are driving in from further away.
+
+4. No other control variables were used to identify matching PUMAs for the control group other than subway ridership. There could be more variables used, such as unemployment rates, education level, and household income that may influence people's choice of travelling by BART.
+
