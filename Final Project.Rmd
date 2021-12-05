@@ -1,0 +1,579 @@
+---
+title: "CEE 218X Final Project"
+author: Darren Wong, Alexander Ng
+date: 12/03/2021
+output: html_document
+---
+
+# Analysis of Travel Time in Bay Area and Surrounding Counties
+
+```{r setup, include=FALSE, warning = F, message = F}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+```{r, include = FALSE}
+library(censusapi)
+library(tidyverse)
+library(tigris)
+library(sf)
+library(leaflet)
+library(dplyr)
+
+Sys.setenv(CENSUS_KEY="c8aa67e4086b4b5ce3a8717f59faa9a28f611dab")
+```
+
+```{r, include = FALSE}
+pums_2019_1yr <- getCensus(
+  name = "acs/acs1/pums",
+  vintage = 2019,
+  region = "public use microdata area:*", 
+  regionin = "state:06",
+  vars = c(
+    "SERIALNO",
+    "SPORDER",
+    "PWGTP",
+    "WGTP",
+    "NP",
+    "HINCP",
+    "WAGP",
+    "AGEP",
+    "ESR",
+    "JWMNP",
+    "VEH",
+    "FULP",
+    "BLD",
+    "TEN",
+    "VALP",
+    "JWTRNS",
+    "JWRIP",
+    "WKHP"
+  )
+)
+
+saveRDS(pums_2019_1yr, 'pums_2019_1yr.rds')
+
+
+ca_pumas <-
+  pumas("CA", cb = T, progress_bar = F)
+
+study_county_names <-
+  c(
+    "Alameda",
+    "Contra Costa",
+    "Marin",
+    "Napa",
+    "San Francisco",
+    "San Mateo",
+    "Santa Clara",
+    "Solano",
+    "Sonoma",
+    "Monterey",
+    "San Benito",
+    "Merced",
+    "Stanislaus",
+    "San Joaquin",
+    "Sacramento",
+    "Yolo",
+    "Lake",
+    "Mendocino",
+    "Santa Cruz"
+  )
+
+study_counties <-
+  counties("CA", cb = T, progress_bar = F) %>%
+  filter(NAME %in% study_county_names)
+
+study_pumas <-
+  ca_pumas %>% 
+  st_centroid() %>% 
+  .[study_counties, ] %>% 
+  st_drop_geometry() %>% 
+  left_join(ca_pumas %>% select(GEOID10)) %>% 
+  st_as_sf()
+
+study_pums <-
+  pums_2019_1yr %>% 
+  mutate(
+    PUMA = str_pad(public_use_microdata_area,5,"left","0")
+  ) %>% 
+  filter(PUMA %in% study_pumas$PUMACE10)
+```
+
+```{r}
+#Filter out population below 25, unemployed individuals and negative income
+
+study_pums$AGEP <- as.numeric(study_pums$AGEP)
+study_pums$HINCP <- as.numeric(study_pums$HINCP)
+
+study_pums <- study_pums %>%
+  filter(AGEP >= 25) %>%
+  filter(ESR %in% c(1,2,4,5)) %>%
+  filter(HINCP >= 0)
+
+#Create bins for travel time
+
+study_pums$JWMNP <- as.numeric(study_pums$JWMNP)
+
+study_pums <- study_pums %>%
+  mutate(traveltime = case_when(
+          JWMNP >= 90 ~ 'More than 90 min',
+          JWMNP >= 60 ~ '60 to 90 min',
+          JWMNP >= 30 ~ '30 to 60 min',
+          TRUE ~ 'Less than 30 min'
+        )
+)
+```
+
+```{r}
+#Create bins for HINCP
+study_pums$incomequintile <- ntile(study_pums$HINCP, 5)
+study_pums$incomequintile <- as.factor(study_pums$incomequintile)
+
+#study_pums$incomequartile <- ntile(study_pums$HINCP, 4)
+#study_pums$incomequartile <- as.factor(study_pums$incomequartile)
+
+levels(study_pums$incomequintile) <- c("Below 20th Percentile", "20 to 40th Percentile", "40 to 60th Percentile", "60 to 80th Percentile", "Above 80th Percentile")
+
+#20 to 40th percentile - 53700
+#40 to 60th percentile - 95900
+#60 to 80th percentile - 147000
+#Above 80th percentile - 231300
+
+```
+
+## Problem Statement
+
+About 4.6% of Bay Area residents were extreme commuters who travel 90 minutes or more each way to work. As urban housing prices increase, low-income populations are often displaced out of urban areas further away from work locations contributing to longer commute times. This is exacerbated by the lack of quality public transportation in these regions, especially during off-peak hours, such that people who work irregular schedules, usually low-income individuals, have no safe or affordable way to get to work (Urban Institute, 2020). Squeezed on both ends by housing and commute factors, they lose access to job opportunities, worsening inequality in the Bay Area.
+
+This study seeks to address the following questions:
+
+- Do low-income residents in the Bay Area experience longer commute times?
+
+- Are there any spatial correlations between measures of affluence (i.e. income, car ownership, home ownership) and commute times?
+
+- Are there statistically significant relationships between socio-economic indicators on commuting times? 
+
+- Do the relationships uncovered contribute to improving policy interventions that reduce commute times or increase access to employment opportunities for low-income residents?
+
+## Data Preprocessing
+
+Data on travel time and other socio-economic variables was extracted from Public Use Microdata Survey for 18 counties (9 Bay Area counties and their 9 immediate adjacent counties). We filtered the data to working adults aged 25 and above and removed observations of negative household income and unemployed individuals. Household income was divided into quintiles for subsequent equity analysis while travel time was categorised into four buckets. 
+
+
+## Equity Analysis of Travel Time across Income Groups
+
+```{r}
+
+study_pums_equity <- study_pums %>%
+  select(c('incomequintile', 'traveltime'))
+
+study_pums_equity <- study_pums_equity %>%
+  group_by(incomequintile, traveltime) %>%
+  add_tally() %>%
+  summarize(n=n())
+
+study_pums_equity_total <-
+  study_pums_equity %>% 
+  group_by(incomequintile) %>% 
+  add_tally() %>%
+  summarize(n = sum(n)) %>% 
+  mutate(traveltime = "Total")
+
+study_pums_equity <- study_pums_equity %>%
+  bind_rows(study_pums_equity_total) %>%
+  group_by(traveltime) %>%
+  mutate(percentage = n/sum(n)*100)
+
+study_pums_equity %>%
+  ggplot() +
+  geom_bar(
+    aes(
+      x = traveltime %>% factor(levels = unique(study_pums_equity$traveltime)),
+      y = percentage,
+      fill = incomequintile %>% factor(levels = unique(study_pums_equity$incomequintile))
+    ),
+    stat = 'identity',
+    position = 'stack',
+  ) +
+  geom_text(
+    aes(
+      x = traveltime %>% factor(levels = unique(study_pums_equity$traveltime)),
+      y = percentage,
+      label = round(percentage, 2), group = incomequintile), size = 3, hjust = 1.5, vjust = 0.5, position = "stack"
+  ) +
+  labs(
+    x = 'Travel Time to Work',
+    y = 'Percentage of Population 25 years or older',
+    title = 'Travel Time to Work by Income',
+    fill = 'Income Quintile'
+  ) +
+  coord_flip() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "vertical"
+  ) +
+  guides(
+    fill = guide_legend(
+      reverse = F
+    )
+  )
+
+```
+
+Using a stacked bar chart, we conducted an equity analysis to compare how travel time differed amongst different income quintiles. Relative to the total proportion of working adults, low-income individuals have shorter commute times as compared to high-income individuals. There appears to be an inverse relationship between household income levels and commute times. 
+
+In carrying out our subsequent analysis, we hope to understand whether low-income individuals are:
+
+- Less likely to incur the opportunity costs associated with longer commutes (due to unproductive hours);
+- Less likely to have flexible work arrangements (i.e. shift work);
+- More likely to reside within close proximity to their work locations;
+- Less likely to access job opportunities located farther away from their homes
+
+
+```{r}
+study_pums_equity_line <- study_pums_equity[study_pums_equity$traveltime != 'Total', ] 
+
+study_pums_equity_line %>%
+  ggplot() +
+  geom_line(
+    aes(
+      x = traveltime %>% factor(levels = c('Less than 30 min', '30 to 60 min', '60 to 90 min', 'More than 90 min')),
+      y = percentage,
+      colour = incomequintile %>% factor(levels = unique(study_pums_equity_line$incomequintile)),
+      group = incomequintile
+    ),
+    stat = 'identity',
+    position = 'identity'
+  ) +
+  geom_point(aes(
+      x = traveltime %>% factor(levels = c('Less than 30 min', '30 to 60 min', '60 to 90 min', 'More than 90 min')),
+      y = percentage),
+      size = 0.5) +
+  labs(
+    x = 'Travel Time to Work',
+    y = 'Percentage',
+    title = 'Travel Time to Work by Income',
+    colour = 'Income Quintile'
+  ) +
+  ylim(13, 25) +
+  theme(
+    legend.position = "right",
+    legend.direction = "vertical"
+  ) +
+  guides(
+    fill = guide_legend(
+      reverse = F
+    )
+  )
+```
+
+A line chart was created to better visualize the trends per income quintile. Interestingly, the variance observed between different income groups increases as commute time increases, especially for travel times between 60 and 90 minutes. This suggests that there are diverging push and pull factors influencing an individual's travel decisions when commute time is longer. For instance, low-income individuals may shoulder other household responsibilities that discourage them from spending more time on travel while higher-income individuals can afford the cost of travel, e.g. fuel.
+
+## Geospatial Visualizations
+
+```{r}
+
+pt_values = c(2,3,4,5)
+ten_values = c(1,2)
+
+study_pums_map <-
+  study_pums %>% 
+  mutate(
+    PWGTP = as.numeric(PWGTP),
+    morethan60min_lowinc = ifelse(
+        (HINCP < 72900) &
+        (JWMNP >= 60),
+      PWGTP,
+      0
+    ),
+    morethan60min_owncar = ifelse(
+        (VEH >= 1) &
+        (JWMNP >= 60),
+      PWGTP,
+      0
+    ),
+    morethan60min_ho = ifelse(
+        (TEN %in% ten_values) &
+        (JWMNP >= 60),
+      PWGTP,
+      0
+    ),
+    morethan60min_highinc = ifelse(
+        (HINCP > 260510) &
+        (JWMNP >= 60),
+      PWGTP,
+      0
+    )
+  ) %>% 
+  group_by(PUMA) %>% 
+  summarize(
+    morethan60min_lowinc = #1
+      sum(morethan60min_lowinc, na.rm =T),
+    perc_morethan60min_lowinc =
+      sum(morethan60min_lowinc, na.rm =T)/sum(PWGTP, na.rm = T)*100,
+    morethan60min_owncar = #2
+      sum(morethan60min_owncar, na.rm =T),
+    perc_morethan60min_owncar =
+      sum(morethan60min_owncar, na.rm =T)/sum(PWGTP, na.rm = T)*100,
+    morethan60min_ho = #3
+      sum(morethan60min_ho, na.rm =T),
+    perc_morethan60min_ho =
+      sum(morethan60min_ho, na.rm =T)/sum(PWGTP, na.rm = T)*100,
+    morethan60min_highinc = #4
+      sum(morethan60min_highinc, na.rm =T),
+    perc_morethan60min_highinc =
+      sum(morethan60min_highinc, na.rm =T)/sum(PWGTP, na.rm = T)*100,
+  ) %>% 
+  left_join(
+    study_pumas %>% 
+      select(PUMACE10),
+    by = c("PUMA" = "PUMACE10")
+  ) %>% 
+  st_as_sf()
+```
+
+```{r}
+pums_pal <- colorNumeric(
+  palette = "Oranges",
+  domain = study_pums_map$perc_morethan60min_lowinc
+)
+
+pums_pal2 <- colorNumeric(
+  palette = "Greens",
+  domain = study_pums_map$perc_morethan60min_owncar
+)
+
+pums_pal3 <- colorNumeric(
+  palette = "Blues",
+  domain = study_pums_map$perc_morethan60min_ho
+)
+
+pums_pal4 <- colorNumeric(
+  palette = "Reds",
+  domain = study_pums_map$perc_morethan60min_highinc
+)
+
+leaflet() %>%
+  addTiles() %>% 
+  addPolygons(
+    data = study_pums_map,
+    fillColor = ~pums_pal(perc_morethan60min_lowinc),
+    color = "grey",
+    opacity = 1,
+    fillOpacity = 0.5,
+    weight = 1,
+    label = ~paste0(
+      round(perc_morethan60min_lowinc), 
+      "% low-income individuals traveling more than 60 min"
+    ),
+    group = 'Low Income',
+    highlightOptions = highlightOptions(
+      weight = 2,
+      opacity = 1
+    )
+  ) %>% 
+  addPolygons(
+    data = study_pums_map,
+    fillColor = ~pums_pal2(perc_morethan60min_owncar),
+    color = "grey",
+    opacity = 1,
+    fillOpacity = 0.5,
+    weight = 1,
+    label = ~paste0(
+      round(perc_morethan60min_owncar), 
+      "% individuals who own car(s) traveling more than 60 min"
+    ),
+    group = 'Own Car(s)',
+    highlightOptions = highlightOptions(
+      weight = 2,
+      opacity = 1
+    )
+  ) %>%
+  addPolygons(
+    data = study_pums_map,
+    fillColor = ~pums_pal3(perc_morethan60min_ho),
+    color = "grey",
+    opacity = 1,
+    fillOpacity = 0.5,
+    weight = 1,
+    label = ~paste0(
+      round(perc_morethan60min_ho), 
+      "% individuals who own a home traveling more than 60 min"
+    ),
+    group = 'Own Home',
+    highlightOptions = highlightOptions(
+      weight = 2,
+      opacity = 1
+    )
+  ) %>%
+  addPolygons(
+    data = study_pums_map,
+    fillColor = ~pums_pal4(perc_morethan60min_highinc),
+    color = "grey",
+    opacity = 1,
+    fillOpacity = 0.5,
+    weight = 1,
+    label = ~paste0(
+      round(perc_morethan60min_highinc), 
+      "% high-income individuals traveling more than 60 min"
+    ),
+    group = 'High Income',
+    highlightOptions = highlightOptions(
+      weight = 2,
+      opacity = 1
+    )
+  ) %>%
+  addLegend(
+    data = study_pums_map,
+    pal = pums_pal,
+    values = ~perc_morethan60min_lowinc,
+    title = "% low-income individuals<br>traveling more than 60 min"
+  ) %>%
+  addLegend(
+    data = study_pums_map,
+    pal = pums_pal2,
+    values = ~perc_morethan60min_owncar,
+    title = "% individuals who own<br>car(s) traveling more than<br>60 min"
+  ) %>%
+  addLegend(
+    data = study_pums_map,
+    pal = pums_pal3,
+    values = ~perc_morethan60min_ho,
+    title = "% individuals<br>who own home<br>traveling more than 60 min"
+  ) %>%
+  addLegend(
+    data = study_pums_map,
+    pal = pums_pal4,
+    values = ~perc_morethan60min_highinc,
+    title = "% high-income individuals<br>traveling more than 60 min"
+  ) %>%
+  addLayersControl(
+    overlayGroups = c('Low Income', 'High Income', 'Own Car(s)', 'Own Home'),
+    options = layersControlOptions(collapsed = FALSE),
+    position = 'topleft'
+  )
+```
+
+Four socio-economic characteristics were spatially plotted: low-income (<20th percentile), high-income (>80th percentile), car ownership and home ownership. From the map, there is a higher percentage of low-income individuals who travel more than 60 minutes in the counties surrounding the Bay Area, such as San Joaquin (7%), Stanislaus (8%) and Merced (9%). Within the Bay Area, the trend is weaker but seen in Solano and Contra Costa counties.
+
+On the other hand, the main regions with long travel times amongst higher-income individuals are concentrated in the Bay Area, especially Contra Costa, Alameda, San Mateo and Santa Clara counties. This is expected as higher-income individuals tend to work in heavier-populated Bay Area locations and are expected to encounter worse traffic conditions.
+
+Car ownership is higher the further from denser urban regions in the Bay Area as observed in Brentwood (Contra Costa) , San Jose, Tracy (San Joaquin). This suggests that there may be a lack of commute alternatives in the area, such as public transport. These observations are very similar amongst individuals who own a home, which is consistent with the characteristics of these areas as suburban neighborhoods with more working adults financially and physically able to manage long commutes to work.
+
+
+```{r}
+#library(plotly)
+
+#study_pums <- mutate(study_pums, ho = ifelse(
+  #TEN %in% ten_values, 1, 0))
+#study_pums <- mutate(study_pums, car = ifelse(
+  #VEH != 0, 1, 0))
+
+#study_pums$ho[which(study_pums$TEN %in% ten_values)]
+
+#plot_ly(data = study_pums, x=~HINCP, y=~JWMNP, z=~WKHP, type="scatter3d", mode="markers", color = ~incomequintile)
+```
+
+
+```{r}
+#001,007,017,021,023,024,027,028,034,035,038,039,041,043,048,049,050,057
+```
+
+# Regression
+```{r}
+
+study_pums <- study_pums%>%
+  mutate(WAGP = as.numeric(WAGP),
+         VALP =  as.numeric(VALP),
+         FULP = as.numeric(FULP),
+         WKHP = as.numeric(WKHP))
+
+study_pums_reg <- na.omit(study_pums)
+
+model <- lm(JWMNP ~ HINCP + AGEP + TEN + JWTRNS + JWRIP + WKHP + WAGP, study_pums_reg)
+print(summary(model))
+```
+
+A multiple regression analysis was conducted with the socio-economic indicators identified. From the results, household income is negatively correlated with travel time, reflecting the financial considerations of fuel or other familial responsibilities. However, higher earning individuals appear to be more willing to accept the cost of longer commutes. The older the individual is, the shorter the commute time, possibly due to their financial ability to afford faster commute options or the personal choice to work closer to home. 
+
+As anticipated, individuals who elect to commute by car have shorter travel times while individuals who travel by public transport have longer travel times. Individuals who travel by taxi, motorcycle or bicycles have the longest travel times, suggesting that these forms of commute are less reliable overall. In addition, carpooling appears to increase commute times.
+
+Finally, the hours worked per week appears to have a positive correlation with commute times. Longer hours are associated with longer commute times, which could be attributed to irregular hours like shift work that restricts an individual's commute choices.
+
+
+```{r}
+plot(density(residuals(model)))
+```
+
+The distribution of residuals is mostly normal. This indicates that the chosen model does not over or under fit the data.
+
+```{r}
+study_pums$residuals <- model$residuals
+
+study_pums_2 <- study_pums %>%
+  group_by(PUMA) %>%
+  summarize(
+    mean = mean(residuals)
+  ) %>%
+  left_join(
+    study_pumas %>% 
+      select(PUMACE10),
+    by = c("PUMA" = "PUMACE10")
+  ) %>%
+  st_as_sf()
+
+mybins <- c(-18, -12, -6, 0, 6, 12, 18)
+
+pums_pal5 <- colorBin(
+  palette = "RdBu",
+  domain = study_pums_2$mean, bins = mybins
+)
+
+leaflet() %>%
+  addTiles() %>% 
+  addPolygons(
+    data = study_pums_2,
+    fillColor = ~pums_pal5(mean),
+    color = "grey",
+    opacity = 1,
+    fillOpacity = 1,
+    weight = 1,
+    label = ~paste0(
+      round(mean,2)
+    ),
+    highlightOptions = highlightOptions(
+      weight = 2,
+      opacity = 1
+    )
+  ) %>%
+  addLegend(
+    data = study_pums_2,
+    pal = pums_pal5,
+    values = ~mean,
+    title = "Mean of Residuals"
+  )
+
+```
+
+After plotting the mean of the residuals, this suggests that the model more accurately predicts commute times within the central Bay Area and is less accurate in the regions farther away.
+
+## Further Considerations
+
+Some parameters could be considered for subsequent analysis:
+
+- Accounting for replicate weights will reduce the margin of error in the regression analysis (WGTP data for chosen datasets were not available for download).
+
+- American Community Survey with more granular geographical sub-units does not have travel time data for all desired counties (missing data sets for 7 counties). 
+
+- Using LODES data for further Origin-Destination analysis would complement this analysis. However, the chosen dataset was too computationally complex due to large file size.
+
+- Incorporating other intersecting social indicators such as education level, race and 
+environmental considerations may provide a more holistic comparison.
+
+
+
+
+
+
+
+
