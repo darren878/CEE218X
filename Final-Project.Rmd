@@ -516,9 +516,9 @@ leaflet() %>%
   )) %>%
   addLegend(
     data = study_pums_map,
-    pal = pums_pal3,
-    values = ~perc_morethan60min_ho,
-    title = "% individuals<br>who own home<br>traveling more than 60 min"
+    pal = pums_pal2,
+    values = ~perc_morethan60min_owncar,
+    title = "% individuals<br>who own car(s)<br>traveling more than 60 min"
   )
 ```
 
